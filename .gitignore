@@ -1,6 +1,7 @@
 # Environment
 .env
 *.env.local
+go-impl/.env
 
 # Python
 __pycache__/
@@ -26,6 +27,11 @@ target/
 # Go
 go-impl/bin/
 go-impl/vendor/
+go-impl/*.exe
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
 
 # IDE
 .vscode/

@@ -42,7 +42,7 @@ func (m *LongTermMemory) Search(query string, topK int) []Document {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	queryTerms := strings.Fields(strings.ToLower(query))
+	queryTerms := tokenize(query)
 
 	type scored struct {
 		doc   Document
@@ -54,6 +54,9 @@ func (m *LongTermMemory) Search(query string, topK int) []Document {
 		contentLower := strings.ToLower(doc.Content)
 		score := 0
 		for _, term := range queryTerms {
+			if term == "" {
+				continue
+			}
 			if strings.Contains(contentLower, term) {
 				score++
 			}
@@ -83,6 +86,30 @@ func (m *LongTermMemory) Search(query string, topK int) []Document {
 	}
 
 	return docs
+}
+
+// tokenize 支持空格分词，并对中文生成二字切分，便于演示检索。
+func tokenize(query string) []string {
+	q := strings.ToLower(strings.TrimSpace(query))
+	terms := strings.Fields(q)
+	seen := make(map[string]struct{}, len(terms))
+	for _, t := range terms {
+		seen[t] = struct{}{}
+	}
+
+	runes := []rune(q)
+	for i := 0; i < len(runes)-1; i++ {
+		if runes[i] < 128 && runes[i+1] < 128 {
+			continue
+		}
+		gram := string(runes[i : i+2])
+		if _, ok := seen[gram]; ok {
+			continue
+		}
+		seen[gram] = struct{}{}
+		terms = append(terms, gram)
+	}
+	return terms
 }
 
 func generateID(content string) string {

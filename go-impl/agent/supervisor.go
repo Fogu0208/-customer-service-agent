@@ -11,11 +11,11 @@ import (
 
 // SupervisorAgent 是中央编排协调者。
 // 负责意图路由 → 子Agent调度 → 合规审查 → 结果汇总。
-// Go的goroutine天然适合并行调度多个子Agent。
 type SupervisorAgent struct {
 	intentRouter    *IntentRouterAgent
 	knowledgeAgent  *KnowledgeRAGAgent
 	ticketAgent     *TicketHandlerAgent
+	chitchatAgent   *ChitchatAgent
 	complianceAgent *ComplianceCheckerAgent
 	workingMemory   *memory.WorkingMemory
 }
@@ -24,6 +24,7 @@ func NewSupervisorAgent(
 	intentRouter *IntentRouterAgent,
 	knowledgeAgent *KnowledgeRAGAgent,
 	ticketAgent *TicketHandlerAgent,
+	chitchatAgent *ChitchatAgent,
 	complianceAgent *ComplianceCheckerAgent,
 	workingMem *memory.WorkingMemory,
 ) *SupervisorAgent {
@@ -31,6 +32,7 @@ func NewSupervisorAgent(
 		intentRouter:    intentRouter,
 		knowledgeAgent:  knowledgeAgent,
 		ticketAgent:     ticketAgent,
+		chitchatAgent:   chitchatAgent,
 		complianceAgent: complianceAgent,
 		workingMemory:   workingMem,
 	}
@@ -41,24 +43,19 @@ func (s *SupervisorAgent) Orchestrate(state *State) *State {
 	return tracing.TraceFunc("supervisor", "orchestrate", func() *State {
 		start := time.Now()
 
-		// Step 1: 意图路由
 		state.CurrentAgent = "intent_router"
 		state = s.intentRouter.Process(state)
 
-		// 记录到工作记忆
 		s.workingMemory.Update(state.SessionID, map[string]interface{}{
 			"intent":    state.Intent,
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 
-		// Step 2: 分发到对应子Agent
 		state = s.dispatch(state)
 
-		// Step 3: 合规审查
 		state.CurrentAgent = "compliance_checker"
 		state = s.complianceAgent.Process(state)
 
-		// Step 4: 汇总结果
 		state = s.synthesize(state)
 
 		elapsed := time.Since(start)
@@ -76,9 +73,12 @@ func (s *SupervisorAgent) dispatch(state *State) *State {
 	case "ticket_handler":
 		state.CurrentAgent = "ticket_handler"
 		return s.ticketAgent.Process(state)
+	case "chitchat":
+		state.CurrentAgent = "chitchat"
+		return s.chitchatAgent.Process(state)
 	default:
-		state.CurrentAgent = "knowledge_rag"
-		return s.knowledgeAgent.Process(state)
+		state.CurrentAgent = "chitchat"
+		return s.chitchatAgent.Process(state)
 	}
 }
 
