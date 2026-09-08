@@ -12,22 +12,33 @@ import (
 // Phase 2: 深度审查（生产环境调用LLM）
 type ComplianceCheckerAgent struct {
 	forbiddenTerms []string
-	piiPatterns    map[string]*regexp.Regexp
+	piiRules       []piiRule
+	holdback       int
+}
+
+// piiRule 一条 PII 检测规则。minLen 为该正则最短可能的匹配长度，
+// 流式输出据此计算需要暂缓发送的尾部窗口。
+type piiRule struct {
+	label   string
+	pattern *regexp.Regexp
+	minLen  int
 }
 
 func NewComplianceCheckerAgent() *ComplianceCheckerAgent {
-	return &ComplianceCheckerAgent{
+	a := &ComplianceCheckerAgent{
 		forbiddenTerms: []string{
 			"保证收益", "稳赚不赔", "零风险", "保本保息",
 			"最高收益", "预期收益率", "承诺回报",
 			"内部消息", "内幕", "暗箱操作",
 		},
-		piiPatterns: map[string]*regexp.Regexp{
-			"phone":     regexp.MustCompile(`1[3-9]\d{9}`),
-			"id_card":   regexp.MustCompile(`\d{17}[\dXx]`),
-			"bank_card": regexp.MustCompile(`\d{16,19}`),
+		piiRules: []piiRule{
+			{label: "手机号", pattern: regexp.MustCompile(`1[3-9]\d{9}`), minLen: 11},
+			{label: "身份证号", pattern: regexp.MustCompile(`\d{17}[\dXx]`), minLen: 18},
+			{label: "银行卡号", pattern: regexp.MustCompile(`\d{16,19}`), minLen: 16},
 		},
 	}
+	a.holdback = a.computeHoldback()
+	return a
 }
 
 func (a *ComplianceCheckerAgent) Process(state *State) *State {
@@ -49,7 +60,7 @@ func (a *ComplianceCheckerAgent) Process(state *State) *State {
 			return state
 		}
 
-		violations := a.ruleCheck(content)
+		violations := a.CheckText(content)
 
 		passed := len(violations) == 0
 		riskLevel := "low"
@@ -79,7 +90,8 @@ func (a *ComplianceCheckerAgent) Process(state *State) *State {
 	})
 }
 
-func (a *ComplianceCheckerAgent) ruleCheck(content string) []string {
+// CheckText 对文本执行规则审查，返回命中的违规项。
+func (a *ComplianceCheckerAgent) CheckText(content string) []string {
 	var violations []string
 
 	for _, term := range a.forbiddenTerms {
@@ -88,20 +100,38 @@ func (a *ComplianceCheckerAgent) ruleCheck(content string) []string {
 		}
 	}
 
-	piiLabels := map[string]string{
-		"phone":     "手机号",
-		"id_card":   "身份证号",
-		"bank_card": "银行卡号",
-	}
-
-	for piiType, pattern := range a.piiPatterns {
-		if pattern.MatchString(content) {
-			label := piiLabels[piiType]
-			violations = append(violations, "检测到PII信息泄露: "+label)
+	for _, rule := range a.piiRules {
+		if rule.pattern.MatchString(content) {
+			violations = append(violations, "检测到PII信息泄露: "+rule.label)
 		}
 	}
 
 	return violations
+}
+
+// Holdback 返回流式输出需要暂缓发送的尾部字符数。
+// 取值为最长规则长度减一：只有累积文本再多一个字符时，
+// 跨 token 拼出的违规词才可能首次被完整匹配到。
+func (a *ComplianceCheckerAgent) Holdback() int {
+	return a.holdback
+}
+
+func (a *ComplianceCheckerAgent) computeHoldback() int {
+	longest := 0
+	for _, term := range a.forbiddenTerms {
+		if n := len([]rune(term)); n > longest {
+			longest = n
+		}
+	}
+	for _, rule := range a.piiRules {
+		if rule.minLen > longest {
+			longest = rule.minLen
+		}
+	}
+	if longest <= 1 {
+		return 0
+	}
+	return longest - 1
 }
 
 func (a *ComplianceCheckerAgent) Name() string {

@@ -130,11 +130,17 @@ func (s *SupervisorAgent) buildGraph(ctx context.Context) (compose.Runnable[*Sta
 }
 
 // asLambda 把子 Agent 的 Process 方法适配成 Eino 的 Lambda 节点。
+// 图在调用节点时提供的 ctx 会被写回 State，供子 Agent 传给上游模型调用。
 func asLambda(name string, process func(*State) *State) *compose.Lambda {
-	return compose.InvokableLambda(func(_ context.Context, state *State) (*State, error) {
-		state.CurrentAgent = name
+	return compose.InvokableLambda(func(ctx context.Context, state *State) (*State, error) {
+		state.enter(ctx, name)
 		return process(state), nil
 	})
+}
+
+// NewOutputGuard 复用图中的合规检查器，为流式响应构造输出闸门。
+func (s *SupervisorAgent) NewOutputGuard(out func(string)) *GuardedSink {
+	return NewGuardedSink(s.complianceAgent, out)
 }
 
 // Orchestrate 执行完整的 Supervisor 编排流程。
@@ -165,7 +171,7 @@ func (s *SupervisorAgent) routeIntent(state *State) *State {
 
 func (s *SupervisorAgent) synthesize(state *State) *State {
 	if !state.CompliancePassed {
-		state.FinalResponse = "抱歉，您的请求涉及敏感内容，已转交人工客服处理。工单编号已自动生成，请留意后续通知。"
+		state.FinalResponse = BlockedResponse
 		return state
 	}
 

@@ -56,7 +56,7 @@ func (a *KnowledgeRAGAgent) generateWithLLM(state *State, docs []memory.Document
 5. 结合对话历史理解指代（例如“那个产品”“刚才说的”）`
 
 	user := fmt.Sprintf("知识库片段：\n%s\n用户问题：%s", ctx.String(), state.UserMessage)
-	return a.llm.ChatHistory(system, toLLMHistory(state.History), user)
+	return chat(a.llm, state, system, user)
 }
 
 func (a *KnowledgeRAGAgent) fallbackAnswer(docs []memory.Document) string {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { checkHealth, sendChat } from '../api/client'
+import { checkHealth, streamChat } from '../api/client'
 import type { ChatMessage } from '../types/chat'
 
 const USER_ID = 'web_user_001'
@@ -52,6 +52,11 @@ onMounted(async () => {
   }
 })
 
+function patch(id: string, changes: Partial<ChatMessage>) {
+  const idx = messages.value.findIndex((m) => m.id === id)
+  if (idx >= 0) messages.value[idx] = { ...messages.value[idx], ...changes }
+}
+
 async function submit(text?: string) {
   const content = (text ?? draft.value).trim()
   if (!content || sending.value) return
@@ -72,26 +77,48 @@ async function submit(text?: string) {
     role: 'assistant',
     content: '正在编排 Agent…',
     pending: true,
+    streaming: true,
   })
 
+  // 已收到的增量文本。replace 事件会用权威结果整段覆盖它。
+  let streamed = ''
+
   try {
-    const res = await sendChat({
-      message: content,
-      user_id: USER_ID,
-      session_id: sessionId.value,
-    })
-    sessionId.value = res.session_id
-    const idx = messages.value.findIndex((m) => m.id === pendingId)
-    if (idx >= 0) {
-      messages.value[idx] = {
-        id: pendingId,
-        role: 'assistant',
-        content: res.response,
-        intent: res.intent,
-        toolsUsed: res.tools_used,
-        compliancePassed: res.compliance_passed,
-      }
-    }
+    await streamChat(
+      {
+        message: content,
+        user_id: USER_ID,
+        session_id: sessionId.value,
+      },
+      {
+        onMeta: (id) => {
+          sessionId.value = id
+        },
+        onNode: (node) => {
+          patch(pendingId, streamed ? { node } : { node, content: nodeProgress(node) })
+        },
+        onDelta: (delta) => {
+          streamed += delta
+          patch(pendingId, { content: streamed, pending: false })
+        },
+        onReplace: (full) => {
+          streamed = full
+          patch(pendingId, { content: streamed, pending: false })
+        },
+        onDone: (info) => {
+          patch(pendingId, {
+            intent: info.intent,
+            toolsUsed: info.tools_used,
+            compliancePassed: info.compliance_passed,
+            firstTokenMs: info.first_token_ms,
+            totalMs: info.total_ms,
+            pending: false,
+            streaming: false,
+            node: undefined,
+          })
+        },
+      },
+    )
     online.value = true
   } catch (err) {
     messages.value = messages.value.filter((m) => m.id !== pendingId)
@@ -119,6 +146,20 @@ function intentLabel(intent?: string) {
     compliance_checker: '合规审查',
   }
   return map[intent] ?? intent
+}
+
+// 首字到达前，用编排图实际走到的节点作为进度提示。
+function nodeProgress(node: string) {
+  const map: Record<string, string> = {
+    intent_router: '正在识别意图…',
+    knowledge_rag: '正在检索知识库…',
+    tool_agent: '正在调用工具…',
+    ticket_handler: '正在创建工单…',
+    chitchat: '正在组织回复…',
+    compliance: '正在合规审查…',
+    synthesize: '正在汇总结果…',
+  }
+  return map[node] ?? '正在编排 Agent…'
 }
 </script>
 
@@ -153,17 +194,22 @@ function intentLabel(intent?: string) {
             <div class="meta">
               <span>{{ msg.role === 'user' ? '你' : 'Smart CS' }}</span>
               <span v-if="msg.intent" class="chip">{{ intentLabel(msg.intent) }}</span>
+              <span v-else-if="msg.node" class="chip">{{ msg.node }}</span>
               <span
                 v-for="tool in msg.toolsUsed || []"
                 :key="tool"
                 class="chip"
               >{{ tool }}</span>
               <span
+                v-if="typeof msg.firstTokenMs === 'number'"
+                class="chip"
+              >首字 {{ msg.firstTokenMs }}ms</span>
+              <span
                 v-if="msg.compliancePassed === false"
                 class="chip warn"
               >合规拦截</span>
             </div>
-            <p class="text">{{ msg.content }}</p>
+            <p class="text">{{ msg.content }}<span v-if="msg.streaming && !msg.pending" class="caret" /></p>
           </article>
         </div>
 

@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// MCPToolServer MCP工具协议服务端 — Go实现。
-// JSON-RPC 2.0工具注册/发现/调用。
+// MCPToolServer 工具注册表：维护工具的名称、描述与入参 schema，并记录调用日志。
+// 仅提供进程内的注册与发现，尚未实现 MCP 的 JSON-RPC 传输层；
+// CallTool 目前只回显参数，真实执行逻辑在 agent.ToolAgent 中。
 type MCPToolServer struct {
 	mu      sync.RWMutex
 	tools   map[string]ToolDefinition

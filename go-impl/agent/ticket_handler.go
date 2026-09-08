@@ -50,7 +50,7 @@ func (a *TicketHandlerAgent) Process(state *State) *State {
 		if a.llm != nil && a.llm.Enabled() {
 			system := `你是客服助手。根据工单创建结果，用简洁友好的中文向用户确认，保留工单号等关键信息，不要编造额外承诺。`
 			user := fmt.Sprintf("用户诉求：%s\n系统结果：%s", state.UserMessage, base)
-			if reply, err := a.llm.ChatHistory(system, toLLMHistory(state.History), user); err == nil && reply != "" {
+			if reply, err := chat(a.llm, state, system, user); err == nil && reply != "" {
 				state.SubResults["ticket_handler"] = reply
 				return state
 			}

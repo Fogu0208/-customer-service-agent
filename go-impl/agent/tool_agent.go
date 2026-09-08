@@ -63,13 +63,21 @@ func (a *ToolAgent) Process(state *State) *State {
 3. 用简洁中文回复最终结果
 4. 不要承诺保本、稳赚等违规表述`
 
-		reply, used, err := a.llm.ChatWithTools(
+		// 工具决策轮通常没有文本增量，实际流出的是工具执行完成后的总结回复。
+		var sink llm.Sink
+		if state.Streaming() {
+			sink = state.Emit
+		}
+
+		reply, used, err := a.llm.ChatWithToolsStream(
+			state.Ctx(),
 			system,
 			toLLMHistory(state.History),
 			state.UserMessage,
 			a.toolDefs(),
 			a.execute(state),
 			4,
+			sink,
 		)
 		if err != nil || reply == "" {
 			msg := "工具调用暂时失败，请稍后重试或联系人工客服。"

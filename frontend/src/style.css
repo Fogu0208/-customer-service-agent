@@ -245,6 +245,26 @@ textarea {
   font-size: 0.98rem;
 }
 
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: #3ecf8e;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 .composer-wrap {
   padding: 12px 14px 14px;
   border-top: 1px solid var(--line);

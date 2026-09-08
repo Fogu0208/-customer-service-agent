@@ -5,8 +5,8 @@ import (
 	"sync"
 )
 
-// LongTermMemory 长期记忆 — 向量检索（关键词回退）。
-// 生产环境应对接Milvus或FAISS CGO绑定。
+// LongTermMemory 长期记忆 — 进程内知识库，采用关键词 + 中文二字切分打分检索。
+// 未接入向量检索；替换为 Milvus / pgvector 只需改写 Search 的实现。
 type LongTermMemory struct {
 	mu        sync.RWMutex
 	documents []Document

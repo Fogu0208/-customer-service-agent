@@ -60,7 +60,7 @@ chitchat
 - tool_agent：查询订单状态、物流、需要调用外部工具的操作
 - chitchat：打招呼、寒暄、感谢、无关闲聊`
 
-	raw, err := a.llm.ChatHistory(system, toLLMHistory(state.History), state.UserMessage)
+	raw, err := a.llm.ChatHistory(state.Ctx(), system, toLLMHistory(state.History), state.UserMessage)
 	if err != nil {
 		return "", err
 	}

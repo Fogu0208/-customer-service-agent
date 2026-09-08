@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// 全链路追踪 — OpenTelemetry集成（简化版）。
-// 为每个Agent调用记录Span，输出到日志。
+// 进程内的调用指标采集：为每个 Agent 调用记录耗时并打印日志，
+// 汇总结果经 /api/metrics 暴露。尚未接入 OpenTelemetry，
+// 导出器可在 InitTracer 与 RecordMetric 处替换。
 
 var (
 	metrics     = make(map[string]*AgentMetric)
