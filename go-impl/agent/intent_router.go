@@ -20,8 +20,11 @@ func NewIntentRouterAgent(client *llm.Client) *IntentRouterAgent {
 
 var intentKeywords = map[string][]string{
 	"ticket_handler": {
-		"退款", "退货", "理赔", "投诉", "开户",
+		"退款", "退货", "理赔", "投诉",
 		"办理", "工单", "申诉", "注销", "申请退款",
+	},
+	"tool_agent": {
+		"订单", "物流", "快递", "查单", "订单号", "ORD-",
 	},
 	"chitchat": {
 		"你好", "您好", "在吗", "嗨", "hello", "hi",
@@ -34,7 +37,7 @@ func (a *IntentRouterAgent) Process(state *State) *State {
 		intent := a.classifyByRules(state.UserMessage)
 
 		if a.llm != nil && a.llm.Enabled() {
-			if llmIntent, err := a.classifyByLLM(state.UserMessage); err == nil && llmIntent != "" {
+			if llmIntent, err := a.classifyByLLM(state); err == nil && llmIntent != "" {
 				intent = llmIntent
 			}
 		}
@@ -44,18 +47,20 @@ func (a *IntentRouterAgent) Process(state *State) *State {
 	})
 }
 
-func (a *IntentRouterAgent) classifyByLLM(message string) (string, error) {
+func (a *IntentRouterAgent) classifyByLLM(state *State) (string, error) {
 	system := `你是智能客服意图分类器。只输出以下之一，不要解释：
 knowledge_rag
 ticket_handler
+tool_agent
 chitchat
 
 规则：
 - knowledge_rag：产品、政策、流程、收益、开户材料等知识问答
-- ticket_handler：退款/投诉/理赔/申诉等需要创建或处理工单的请求
+- ticket_handler：退款/投诉/理赔/申诉等需要创建工单的请求
+- tool_agent：查询订单状态、物流、需要调用外部工具的操作
 - chitchat：打招呼、寒暄、感谢、无关闲聊`
 
-	raw, err := a.llm.Chat(system, message)
+	raw, err := a.llm.ChatHistory(system, toLLMHistory(state.History), state.UserMessage)
 	if err != nil {
 		return "", err
 	}
@@ -64,6 +69,8 @@ chitchat
 	switch {
 	case strings.Contains(text, "ticket_handler"):
 		return "ticket_handler", nil
+	case strings.Contains(text, "tool_agent"):
+		return "tool_agent", nil
 	case strings.Contains(text, "chitchat"):
 		return "chitchat", nil
 	case strings.Contains(text, "knowledge_rag"):

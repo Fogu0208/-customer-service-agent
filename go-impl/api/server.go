@@ -1,10 +1,13 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 
 	"github.com/smartcs/go-impl/agent"
 	"github.com/smartcs/go-impl/memory"
+	"github.com/smartcs/go-impl/mcp"
 	"github.com/smartcs/go-impl/tracing"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +15,11 @@ import (
 
 // Server HTTP API服务（基于Gin框架）
 type Server struct {
-	supervisor     *agent.SupervisorAgent
-	shortTermMem   *memory.ShortTermMemory
-	longTermMem    *memory.LongTermMemory
-	engine         *gin.Engine
+	supervisor   *agent.SupervisorAgent
+	shortTermMem *memory.ShortTermMemory
+	longTermMem  *memory.LongTermMemory
+	mcpServer    *mcp.MCPToolServer
+	engine       *gin.Engine
 }
 
 type ChatRequest struct {
@@ -28,11 +32,13 @@ func NewServer(
 	supervisor *agent.SupervisorAgent,
 	stm *memory.ShortTermMemory,
 	ltm *memory.LongTermMemory,
+	mcpServer *mcp.MCPToolServer,
 ) *Server {
 	s := &Server{
 		supervisor:   supervisor,
 		shortTermMem: stm,
 		longTermMem:  ltm,
+		mcpServer:    mcpServer,
 	}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -66,10 +72,12 @@ func (s *Server) handleChat(c *gin.Context) {
 		req.SessionID = generateSessionID()
 	}
 
+	// 先取历史，再写入本轮 user，保证 Agent 拿到的是“当前轮之前”的上下文
+	priorHistory := s.shortTermMem.GetHistory(req.SessionID)
 	s.shortTermMem.AddMessage(req.SessionID, "user", req.Message)
 
-	state := agent.NewState(req.UserID, req.SessionID, req.Message)
-	result := s.supervisor.Orchestrate(state)
+	state := agent.NewState(req.UserID, req.SessionID, req.Message, priorHistory)
+	result := s.supervisor.Orchestrate(c.Request.Context(), state)
 
 	s.shortTermMem.AddMessage(req.SessionID, "assistant", result.FinalResponse)
 
@@ -77,6 +85,7 @@ func (s *Server) handleChat(c *gin.Context) {
 		"response":          result.FinalResponse,
 		"session_id":        req.SessionID,
 		"intent":            result.Intent,
+		"tools_used":        result.ToolsUsed,
 		"compliance_passed": result.CompliancePassed,
 	})
 }
@@ -91,13 +100,7 @@ func (s *Server) handleHistory(c *gin.Context) {
 }
 
 func (s *Server) handleListTools(c *gin.Context) {
-	// 简化的MCP工具列表
-	tools := []gin.H{
-		{"name": "order_query", "description": "查询订单信息", "category": "order"},
-		{"name": "knowledge_search", "description": "搜索知识库", "category": "knowledge"},
-		{"name": "ticket_create", "description": "创建工单", "category": "ticket"},
-		{"name": "risk_check", "description": "风控检查", "category": "compliance"},
-	}
+	tools := s.mcpServer.ListTools()
 	c.JSON(http.StatusOK, gin.H{"tools": tools})
 }
 
@@ -108,7 +111,7 @@ func (s *Server) handleMetrics(c *gin.Context) {
 }
 
 func (s *Server) handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "healthy", "version": "1.0.0"})
+	c.JSON(http.StatusOK, gin.H{"status": "healthy", "version": "1.1.0"})
 }
 
 func (s *Server) Run(addr string) error {
@@ -116,15 +119,14 @@ func (s *Server) Run(addr string) error {
 }
 
 func generateSessionID() string {
-	// 简易ID生成
 	return "sess-" + randomHex(8)
 }
 
 func randomHex(n int) string {
-	const chars = "0123456789abcdef"
 	b := make([]byte, n)
-	for i := range b {
-		b[i] = chars[i%len(chars)]
+	if _, err := rand.Read(b); err != nil {
+		// 极端情况下退化为时间相关值，避免阻塞请求
+		return hex.EncodeToString([]byte("fallback0"))[:n]
 	}
-	return string(b)
+	return hex.EncodeToString(b)[:n]
 }

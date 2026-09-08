@@ -10,7 +10,7 @@ const messages = ref<ChatMessage[]>([
     id: 'welcome',
     role: 'assistant',
     content:
-      '你好，我是 Smart CS 智能客服。可以询问理财产品、退款政策、开户流程，或申请工单处理。',
+      '你好，我是 Smart CS 智能客服。可以询问理财产品、退款政策、开户流程，查询订单（如 ORD-2024-001），或申请工单处理。',
   },
 ])
 const draft = ref('')
@@ -22,7 +22,7 @@ const listRef = ref<HTMLElement | null>(null)
 
 const suggestions = [
   '理财产品收益怎么样？',
-  '怎么退款？',
+  '查一下订单 ORD-2024-001',
   '开户需要准备什么？',
   '我想申请退款',
 ]
@@ -88,6 +88,7 @@ async function submit(text?: string) {
         role: 'assistant',
         content: res.response,
         intent: res.intent,
+        toolsUsed: res.tools_used,
         compliancePassed: res.compliance_passed,
       }
     }
@@ -113,6 +114,7 @@ function intentLabel(intent?: string) {
   const map: Record<string, string> = {
     knowledge_rag: '知识检索',
     ticket_handler: '工单处理',
+    tool_agent: '工具调用',
     chitchat: '闲聊接待',
     compliance_checker: '合规审查',
   }
@@ -151,6 +153,11 @@ function intentLabel(intent?: string) {
             <div class="meta">
               <span>{{ msg.role === 'user' ? '你' : 'Smart CS' }}</span>
               <span v-if="msg.intent" class="chip">{{ intentLabel(msg.intent) }}</span>
+              <span
+                v-for="tool in msg.toolsUsed || []"
+                :key="tool"
+                class="chip"
+              >{{ tool }}</span>
               <span
                 v-if="msg.compliancePassed === false"
                 class="chip warn"

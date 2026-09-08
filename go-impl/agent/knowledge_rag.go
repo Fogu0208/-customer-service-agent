@@ -25,7 +25,7 @@ func (a *KnowledgeRAGAgent) Process(state *State) *State {
 		docs := a.longTermMemory.Search(query, 3)
 
 		if a.llm != nil && a.llm.Enabled() {
-			answer, err := a.generateWithLLM(query, docs)
+			answer, err := a.generateWithLLM(state, docs)
 			if err == nil && answer != "" {
 				state.SubResults["knowledge_rag"] = answer
 				return state
@@ -37,7 +37,7 @@ func (a *KnowledgeRAGAgent) Process(state *State) *State {
 	})
 }
 
-func (a *KnowledgeRAGAgent) generateWithLLM(query string, docs []memory.Document) (string, error) {
+func (a *KnowledgeRAGAgent) generateWithLLM(state *State, docs []memory.Document) (string, error) {
 	var ctx strings.Builder
 	if len(docs) == 0 {
 		ctx.WriteString("（知识库未检索到直接匹配文档）")
@@ -52,10 +52,11 @@ func (a *KnowledgeRAGAgent) generateWithLLM(query string, docs []memory.Document
 1. 语气自然友好，像真人客服，不要生硬念文档
 2. 只能依据知识库内容作答；知识不足时明确说明并建议联系人工
 3. 不要承诺保本、稳赚等违规表述
-4. 不要编造知识库没有的产品细节`
+4. 不要编造知识库没有的产品细节
+5. 结合对话历史理解指代（例如“那个产品”“刚才说的”）`
 
-	user := fmt.Sprintf("知识库片段：\n%s\n用户问题：%s", ctx.String(), query)
-	return a.llm.Chat(system, user)
+	user := fmt.Sprintf("知识库片段：\n%s\n用户问题：%s", ctx.String(), state.UserMessage)
+	return a.llm.ChatHistory(system, toLLMHistory(state.History), user)
 }
 
 func (a *KnowledgeRAGAgent) fallbackAnswer(docs []memory.Document) string {

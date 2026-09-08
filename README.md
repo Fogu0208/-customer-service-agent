@@ -2,9 +2,10 @@
 
 Go + Vue3 实现的多 Agent 智能客服系统，面向金融 / 电商客服场景。
 
-采用 Supervisor 编排：中央 Agent 负责意图识别与任务分发，知识检索、工单处理、闲聊接待等子 Agent 协同完成回复，输出前经过合规审查。
+基于字节跳动 CloudWeGo 的 [Eino](https://github.com/cloudwego/eino) 框架实现 Supervisor 编排：意图路由节点识别意图后经条件分支进入知识检索、工具调用、工单处理或闲聊接待子 Agent，最终统一经过合规审查节点输出。
 
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev/)
+[![Eino](https://img.shields.io/badge/Eino-CloudWeGo-00ADD8)](https://github.com/cloudwego/eino)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -13,11 +14,12 @@ Go + Vue3 实现的多 Agent 智能客服系统，面向金融 / 电商客服场
 
 ## 功能概览
 
-- **Supervisor 多 Agent 编排**：统一调度意图路由、知识问答、工单、闲聊与合规审查
+- **Eino Graph 编排**：以有向图描述 Agent 协作链路，节点、条件分支与汇聚由框架统一调度
 - **LLM 意图识别**：大模型分类 + 规则兜底，保证服务可用性
-- **RAG 知识问答**：检索知识库片段后，由大模型组织自然语言回答
+- **Function Calling**：模型自主选择 `order_query` / `ticket_create` / `knowledge_search` 等工具
+- **RAG 知识问答**：检索知识库片段后，由大模型结合多轮上下文组织回答
 - **合规审查**：拦截违规金融话术与手机号 / 身份证 / 银行卡等 PII
-- **会话记忆**：工作记忆记录当前推理状态，短期记忆保留多轮对话
+- **会话记忆**：短期记忆保留多轮对话，并注入后续 LLM 调用
 - **前后端联调**：Gin REST API + Vue3 聊天界面
 
 ---
@@ -32,22 +34,20 @@ Go + Vue3 实现的多 Agent 智能客服系统，面向金融 / 电商客服场
 │   API Gateway (Gin)  │  /api/chat  /health  /api/metrics
 └──────────┬───────────┘
            ▼
-┌──────────────────────────────────────────────┐
-│           Supervisor 编排 Agent               │
-│  工作记忆 · 会话短期记忆 · 调用链追踪          │
-└──────┬──────────┬──────────┬─────────────────┘
-       ▼          ▼          ▼
-  意图路由     知识 RAG     工单处理 / 闲聊
-  (LLM+规则)  (检索+生成)   (CRUD / LLM)
-       │          │
-       └────┬─────┘
-            ▼
-       合规审查 Agent
-            ▼
-        最终回复
+     Eino Graph (compose.Graph[*State, *State])
+
+  START → intent_router ─┬→ knowledge_rag ──┐
+                         ├→ tool_agent      │
+        (AddBranch 条件分支) ├→ ticket_handler  ├→ compliance → synthesize → END
+                         └→ chitchat ───────┘
 ```
 
-处理流程示例：用户询问「有哪些理财产品？」→ 意图路由到知识 Agent → 检索相关文档 → LLM 基于片段生成回答 → 合规审查 → 返回前端。
+图在服务启动时 `Compile` 成 `Runnable`，每次请求由 Gin handler 传入 `context` 后 `Invoke`。
+`*State` 作为统一的图输入输出类型在节点间流转，承载会话历史、意图、子 Agent 结果与合规结论。
+
+处理流程示例：
+- 知识问答：「有哪些理财产品？」→ 检索文档 → LLM 结合历史生成回答
+- 工具调用：「查一下订单 ORD-2024-001」→ 模型选择 `order_query` → 返回订单状态
 
 ---
 
@@ -55,8 +55,8 @@ Go + Vue3 实现的多 Agent 智能客服系统，面向金融 / 电商客服场
 
 | 层次 | 技术 | 说明 |
 |------|------|------|
-| 后端 | Go 1.22+ / Gin | REST API 与 Agent 编排 |
-| 编排 | Supervisor Multi-Agent | 中央调度 + 专业子 Agent |
+| 后端 | Go 1.22+ / Gin | REST API |
+| 编排 | Eino (CloudWeGo) | Graph 节点 / 条件分支 / 编译执行 |
 | LLM | OpenAI 兼容接口 | 意图分类、RAG 生成、闲聊 |
 | 记忆 | 工作记忆 + 短期会话记忆 | 可扩展 Redis |
 | 知识库 | 关键词 / 中文切分检索 | 可替换为向量库 |
@@ -72,7 +72,7 @@ Go + Vue3 实现的多 Agent 智能客服系统，面向金融 / 电商客服场
 ├── go-impl/                 # Go 多 Agent 后端
 │   ├── main.go              # 启动入口
 │   ├── .env.example         # 环境变量模板
-│   ├── agent/               # Supervisor / 意图 / RAG / 工单 / 闲聊 / 合规
+│   ├── agent/               # Eino 图编排 + 意图 / RAG / 工具 / 工单 / 闲聊 / 合规
 │   ├── api/                 # Gin HTTP 接口
 │   ├── llm/                 # Chat Completions 客户端
 │   ├── memory/              # 工作记忆 / 短期记忆 / 长期知识库
@@ -157,17 +157,23 @@ curl -X POST http://localhost:8090/api/chat \
 
 ## 核心设计
 
-### Supervisor 编排
+### Eino Graph 编排
 
-由 `SupervisorAgent` 统一完成意图路由、子 Agent 分发、合规审查与结果汇总。链路集中、便于追踪和兜底，避免 Agent 之间循环调用。
+`SupervisorAgent` 在启动时用 `compose.NewGraph[*State, *State]()` 构图：每个子 Agent 的 `Process` 方法通过 `compose.InvokableLambda` 适配为图节点，意图路由后用 `AddBranch` 做条件分支，四条分支再汇聚到合规审查与结果汇总节点。
+
+相比手写 `switch` 分发，图编排把「谁在什么条件下执行」变成声明式的拓扑描述：新增子 Agent 只需注册节点并加入分支目标集合，编排逻辑无需改动；图在 `Compile` 阶段即可校验节点连通性与类型匹配，问题在启动时暴露而非运行时。
 
 ### 意图识别
 
-优先使用大模型将请求分类为 `knowledge_rag` / `ticket_handler` / `chitchat`；模型不可用时回退关键词规则。
+优先使用大模型将请求分类为 `knowledge_rag` / `tool_agent` / `ticket_handler` / `chitchat`；模型不可用时回退关键词规则。分类结果直接作为分支条件的目标节点名。
 
 ### RAG 问答
 
-先检索知识库相关片段，再由大模型基于片段生成回答，并约束不得编造知识库中不存在的细节。
+先检索知识库相关片段，再由大模型基于片段与会话历史生成回答，并约束不得编造知识库中不存在的细节。
+
+### Function Calling
+
+`ToolAgent` 向模型暴露 `order_query`、`ticket_create`、`knowledge_search` 等工具。模型自主决定是否调用、传入何种参数；服务端执行工具后将结果回传模型，再生成最终自然语言回复。
 
 ### 合规审查
 
@@ -184,7 +190,12 @@ curl -X POST http://localhost:8090/api/chat \
 
 ## 致谢
 
-整体多 Agent 客服架构参考了开源项目 [smart-cs-multi-agent](https://github.com/bcefghj/smart-cs-multi-agent)（MIT License）。本仓库在此基础上聚焦 Go 实现，并完成了大模型接入、Vue3 前端与工程化配置。
+整体多 Agent 客服架构参考了开源项目 [smart-cs-multi-agent](https://github.com/bcefghj/smart-cs-multi-agent)（MIT License）。本仓库在此基础上聚焦 Go 实现，并完成了以下工作：
+
+- 编排层由手写分发迁移到 Eino Graph（节点 / 条件分支 / 编译执行）
+- 接入 OpenAI 兼容大模型，实现意图分类、RAG 生成与 Function Calling 工具调用
+- 补齐多轮会话上下文注入与安全的会话 ID 生成
+- 新增 Vue3 + TypeScript 聊天前端与前后端联调配置
 
 ---
 

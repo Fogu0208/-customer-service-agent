@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: Role
   content: string
   intent?: string
+  toolsUsed?: string[]
   compliancePassed?: boolean
   pending?: boolean
 }
@@ -19,6 +20,7 @@ export interface ChatResponse {
   response: string
   session_id: string
   intent: string
+  tools_used?: string[]
   compliance_passed: boolean
 }
 
