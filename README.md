@@ -188,14 +188,7 @@ curl -X POST http://localhost:8090/api/chat \
 
 ---
 
-## 致谢
 
-整体多 Agent 客服架构参考了开源项目 [smart-cs-multi-agent](https://github.com/bcefghj/smart-cs-multi-agent)（MIT License）。本仓库在此基础上聚焦 Go 实现，并完成了以下工作：
-
-- 编排层由手写分发迁移到 Eino Graph（节点 / 条件分支 / 编译执行）
-- 接入 OpenAI 兼容大模型，实现意图分类、RAG 生成与 Function Calling 工具调用
-- 补齐多轮会话上下文注入与安全的会话 ID 生成
-- 新增 Vue3 + TypeScript 聊天前端与前后端联调配置
 
 ---
 
